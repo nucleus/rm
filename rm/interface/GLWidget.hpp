@@ -80,6 +80,7 @@ public slots:
 	void enableCPUDevice() { m_enableGPU = false; m_recomputeWLS = true; }
 	void enableGPUDevice() { m_enableGPU = false; m_recomputeWLS = true; }
 	
+	void wls();	
 	void raymarch();
 };
 

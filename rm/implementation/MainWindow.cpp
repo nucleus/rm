@@ -39,6 +39,7 @@ MainWindow::MainWindow(QMainWindow * parent) : QMainWindow(parent)
 	connect(uiDeviceSelector[0], SIGNAL(pressed()), glWidget, SLOT(enableCPUDevice()));
 	connect(uiDeviceSelector[1], SIGNAL(pressed()), glWidget, SLOT(enableGPUDevice()));
 	
+	connect(uiWLSButton, SIGNAL(clicked()), glWidget, SLOT(wls()));
 	connect(uiRaymarchButton, SIGNAL(clicked()), glWidget, SLOT(raymarch()));
 
 	// default settings
@@ -127,6 +128,9 @@ void MainWindow::setupUi()
 	layout->addWidget(uiDeviceSelector[0], row, 0, 1, 1, Qt::AlignTop);
 	uiDeviceSelector[1] = new QRadioButton("GPU");
 	layout->addWidget(uiDeviceSelector[1], row++, 1, 1, 1, Qt::AlignTop);
+	
+	uiWLSButton = new QPushButton("Compute WLS");
+	layout->addWidget(uiWLSButton, row++, 0, 1, 3, Qt::AlignTop);
 	
 	uiRaymarchButton = new QPushButton("Raymarch!");
 	layout->addWidget(uiRaymarchButton, row++, 0, 1, 3, Qt::AlignTop);

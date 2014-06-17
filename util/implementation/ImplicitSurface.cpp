@@ -152,35 +152,45 @@ bool util::ImplicitSurface::intersect(const util::Ray& ray, Point3f& hit) const 
 	// march ray through surface
 	float step = (tfar - tnear) / steps;
 	
-	// determine sign of the implicit function at the start of the ray
-	bool sign = (_evaluate(ray(tnear)) > 0 ? true : false);	
+	// set sign to unknown at the beginning
+	bool sign, signWasSet = false;
 	
 	// trace forward through the bounding box
 	for (unsigned i = 1; i < steps-1; i++) { // -1 to not get too close to tfar
 		Point3f target = ray(tnear + i * step);
 		float implicitValue = _evaluate(target);
-		bool sgn = (implicitValue > 0 ? true : false);
 		
-		// if the sign has changed, the ray entered the surface
-		if (sgn != sign) {			
-			if (i == 1) {
-				hit = target;
-				return true;
+		if (!signWasSet) {
+			if (implicitValue < 0.0f) {
+				sign = false;
+				signWasSet = true;
+			} else if (implicitValue > 0.0f) {
+				sign = true;
+				signWasSet = true;
 			}
-			
-			// compute bounds between this and the last step for backward trace
-			float tStart = tnear + (i-1) * step;
-			float tEnd = tnear + i * step;
-			float smallStep = (tEnd - tStart) / steps;
-			
-			// trace backwards from step that changed the sign
-			for (unsigned j = steps-1; j >= 0; j--) {
-				target = ray(tStart + j * smallStep);
-				implicitValue = _evaluate(target);
-				sgn = (implicitValue > 0 ? true : false);
-				if (sgn == sign) {
+		} else {
+			bool enteredSurface = (sign == true && implicitValue < 0.0f) || (sign == false && implicitValue > 0.0f);
+			if (enteredSurface) { // ray entered surface
+				if (i == 1) {
 					hit = target;
 					return true;
+				}
+				
+				// compute bounds between this and the last step for backward trace
+				float tStart = tnear + (i-1) * step;
+				float tEnd = tnear + i * step;
+				float smallStep = (tEnd - tStart) / steps;
+				
+				// trace backwards from step that changed the sign
+				for (int j = steps-1; j >= 0; j--) {
+					target = ray(tStart + j * smallStep);
+					implicitValue = _evaluate(target);
+					
+					bool exitedSurface = (sign == true && implicitValue > 0.0f) || (sign == false && implicitValue < 0.0f);
+					if (exitedSurface) {
+						hit = target;
+						return true;
+					}
 				}
 			}
 		}

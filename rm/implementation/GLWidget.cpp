@@ -233,6 +233,15 @@ void GLWidget::loadFile() {
     updateGL();
 }
 
+void GLWidget::wls() {
+	if (m_recomputeWLS) {
+		float time = 0.0f;
+		GET_TIME( computeWLS() )
+		report("GLWidget::wls(): WLS calculation took " << time / 1000.0f << " ms");
+		m_recomputeWLS = false;
+	}
+}
+
 void GLWidget::raymarch() {
 	report("GLWidget::raymarch()");
 	
@@ -283,7 +292,7 @@ void GLWidget::computeWLS() {
 	util::Grid3D& grid = m_surface.grid();
 	Point3i dims = grid.dimensions();
 	
-	// #pragma omp parallel for schedule(dynamic)
+	#pragma omp parallel for schedule(dynamic)
 	for (unsigned z = 0; z < dims.z; z++) {
 		for (unsigned y = 0; y < dims.y; y++) {
 			for (unsigned x = 0; x < dims.x; x++) {

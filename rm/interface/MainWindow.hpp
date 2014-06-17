@@ -42,6 +42,8 @@ private:
 	
 	class QRadioButton* uiDeviceSelector[2];
 	
+	class QPushButton* uiWLSButton;
+	
 	class QPushButton* uiRaymarchButton;
 
 public:
