@@ -39,10 +39,7 @@ env.EnableQt4Modules(['QtGui', 'QtCore', 'QtOpenGL'])
 utilSourceFiles = Split("""
 util/implementation/Util.cpp
 util/implementation/BoundingBox.cpp
-util/implementation/PointCloud.cpp
-util/implementation/Grid.cpp
 util/implementation/Grid3D.cpp
-util/implementation/ApproximationSurface.cpp
 util/implementation/ImplicitSurface.cpp
 """)
 
