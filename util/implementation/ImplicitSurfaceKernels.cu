@@ -7,56 +7,59 @@
 	err = expr; \
 	if (err != cudaSuccess) { std::cerr << "CUDA ERROR (" << cudaGetErrorString(err) << "): " << msg << std::endl; } \
 	}
-	
+
+#include <util/interface/Util.hpp>
 #include <util/interface/ImplicitSurface.hpp>
 #include <glm/interface/gtc/type_ptr.hpp>
 
 #include <util/interface/cutil_math.h>
 
+#include <thrust/device_ptr.h>
+#include <thrust/copy.h>
+
 #include <limits.h>
 #include <float.h>
 
-// helper struct
-typedef union {
-	float3 vec;
-	float elem[3];
-} ufloat3;
-
 // constant data
-__constant__ ufloat3 c_bboxMin;
-__constant__ ufloat3 c_bboxMax;
+__constant__ float3 c_bboxMin;
+__constant__ float3 c_bboxMax;
 __constant__ int3 c_gridDims;
 
 // textures
 texture<float4, 3, cudaReadModeElementType> tex_voxels;
 
+inline __device__ glm::vec3 make_vec3(float3 a) {
+	return glm::vec3(a.x, a.y, a.z);
+}
+
 __device__
-bool clipRayAgainstAABB(ufloat3 org, ufloat3 dir, float& tnear, float& tfar) {
-	ufloat3 T_1, T_2;
+bool clipRayAgainstAABB(const glm::vec3& org, const glm::vec3& dir, float& tnear, float& tfar) {
+	glm::vec3 T_1, T_2;
 	double t_near = -FLT_MAX;
 	double t_far = FLT_MAX;
 	
-	ufloat3 min = c_bboxMin, max = c_bboxMax;
+	glm::vec3 min = make_vec3(c_bboxMin);
+	glm::vec3 max = make_vec3(c_bboxMax);
 	
 	for (int i = 0; i < 3; i++){
-		if (dir.elem[i] == 0){
-			if ((org.elem[i] < min.elem[i]) || (org.elem[i] > max.elem[i])) {
+		if (dir[i] == 0){
+			if ((org[i] < min[i]) || (org[i] > max[i])) {
 				return false;
 			}
 		} else {
-			T_1.elem[i] = (min.elem[i] - org.elem[i]) / dir.elem[i];
-			T_2.elem[i] = (max.elem[i] - org.elem[i]) / dir.elem[i];
+			T_1[i] = (min[i] - org[i]) / dir[i];
+			T_2[i] = (max[i] - org[i]) / dir[i];
 
-			if (T_1.elem[i] > T_2.elem[i]) {
-				ufloat3 tmp = T_1;
+			if (T_1[i] > T_2[i]) {
+				glm::vec3 tmp = T_1;
 				T_1 = T_2;
 				T_2 = tmp;
 			}
-			if (T_1.elem[i] > t_near) {
-				t_near = T_1.elem[i];
+			if (T_1[i] > t_near) {
+				t_near = T_1[i];
 			}
-			if (T_2.elem[i] < t_far) {
-				t_far = T_2.elem[i];
+			if (T_2[i] < t_far) {
+				t_far = T_2[i];
 			}
 			if ( (t_near > t_far) || (t_far < 0.0f) || (fabsf(t_far - t_near) < 0.0001f) ) {
 				return false;
@@ -70,36 +73,35 @@ bool clipRayAgainstAABB(ufloat3 org, ufloat3 dir, float& tnear, float& tfar) {
 }
 
 __device__
-void evaluateGrid(float3 target, float* value, float3* normal) {
-	float3 coords = (target - c_bboxMin.vec) / (c_bboxMax.vec - c_bboxMin.vec);
+void evaluateGrid(const glm::vec3& target, float* value, glm::vec3* normal) {
+	glm::vec3 coords = (target - make_vec3(c_bboxMin)) / (make_vec3(c_bboxMax) - make_vec3(c_bboxMin));
 	float4 interp = tex3D(tex_voxels, coords.x, coords.y, coords.z);
 	if (value) {
 		*value = interp.w;
 	}
 	if (normal) {
-		*normal = make_float3(interp.x, interp.y, interp.z);
+		*normal = glm::vec3(interp.x, interp.y, interp.z);
 	}
 }
 
 __global__
-void raymarchKernel(float3* d_rays, float3* d_output, unsigned n, unsigned steps) {
+void raymarchKernel(glm::vec3* d_rays, glm::vec3* d_output, unsigned n, unsigned steps) {
 	unsigned idx = blockIdx.x * blockDim.x + threadIdx.x;
 	
 	if (idx > n) {
 		return;
 	}
 	
-	ufloat3 org, dir;
-	org.vec = d_rays[2*idx];
-	dir.vec = d_rays[2*idx+1];
+	glm::vec3 org = d_rays[2*idx];
+	glm::vec3 dir = d_rays[2*idx+1];
 	
-	float3 hit, normal;
+	glm::vec3 hit, normal;
 	float tnear, tfar;
 	
 	bool intersects = clipRayAgainstAABB(org, dir, tnear, tfar);
 	if (!intersects) {
-		hit = make_float3(0.0f);
-		normal = make_float3(0.0f);
+		hit = glm::vec3(0.0f);
+		normal = glm::vec3(0.0f);
 	} else {
 		tnear += 0.00001f;
 
@@ -111,8 +113,8 @@ void raymarchKernel(float3* d_rays, float3* d_output, unsigned n, unsigned steps
 
 		// trace forward through the bounding box
 		for (unsigned i = 1; i < steps-1; i++) { // -1 to not get too close to tfar
-			float3 target = org.vec + dir.vec * (tnear + i * step);
-			float implicitValue; float3 implicitNormal;
+			glm::vec3 target = org + dir * (tnear + i * step);
+			float implicitValue; glm::vec3 implicitNormal;
 			evaluateGrid(target, &implicitValue, &implicitNormal);
 			
 			if (!signWasSet) {
@@ -134,7 +136,7 @@ void raymarchKernel(float3* d_rays, float3* d_output, unsigned n, unsigned steps
 					
 					// trace backwards from step that changed the sign
 					for (int j = steps-1; j >= 0; j--) {
-						target = org.vec + dir.vec * (tStart + j * smallStep);
+						target = org + dir * (tStart + j * smallStep);
 						evaluateGrid(target, &implicitValue, &normal);
 						
 						bool exitedSurface = (sign == true && implicitValue > 0.0f) || (sign == false && implicitValue < 0.0f);
@@ -155,7 +157,6 @@ void raymarchKernel(float3* d_rays, float3* d_output, unsigned n, unsigned steps
 }
 
 void launchRaymarchKernel(const util::Grid3D& volume, const util::RayVector& rays, unsigned steps, PointNormalData& results) {
-	
 	// configure device
 	check( cudaDeviceSetCacheConfig( cudaFuncCachePreferL1 ), "cudaDeviceSetCacheConfig" );
 	
@@ -198,13 +199,13 @@ void launchRaymarchKernel(const util::Grid3D& volume, const util::RayVector& ray
 	check( cudaBindTextureToArray(tex_voxels, d_volumeArray, channelDesc), "cudaBindTextureToArray" );
 	
 	// initialize ray array
-	float3* d_rays;
-	check( cudaMalloc(&d_rays, sizeof(float3) * 2 * rays.size()), "cudaMalloc" );
-	check( cudaMemcpy(d_rays, rays.data(), sizeof(float3) * 2 * rays.size(), cudaMemcpyHostToDevice), "cudaMemcpy" );
+	glm::vec3* d_rays;
+	check( cudaMalloc(&d_rays, sizeof(glm::vec3) * 2 * rays.size()), "cudaMalloc" );
+	check( cudaMemcpy(d_rays, rays.data(), sizeof(glm::vec3) * 2 * rays.size(), cudaMemcpyHostToDevice), "cudaMemcpy" );
 	
 	// initialize output array
-	float3* d_output;
-	check( cudaMalloc(&d_output, sizeof(float3) * 2 * rays.size()), "cudaMalloc" );
+	glm::vec3* d_output;
+	check( cudaMalloc(&d_output, sizeof(glm::vec3) * 2 * rays.size()), "cudaMalloc" );
 	
 	// launch kernel
 	dim3 block(256, 1, 1);
@@ -214,15 +215,15 @@ void launchRaymarchKernel(const util::Grid3D& volume, const util::RayVector& ray
 	check( cudaDeviceSynchronize(), "kernel launch" );
 	
 	// retrieve intersection data
-	float3* h_output = new float3[2 * rays.size()];
-	check( cudaMemcpy(h_output, d_output, sizeof(float3) * 2 * rays.size(), cudaMemcpyDeviceToHost), "cudaMemcpy" );
+	glm::vec3* h_output = new glm::vec3[2 * rays.size()];
+	check( cudaMemcpy(h_output, d_output, sizeof(glm::vec3) * 2 * rays.size(), cudaMemcpyDeviceToHost), "cudaMemcpy" );
 	
 	results.reserve(rays.size());
 	for (unsigned i = 0; i < rays.size(); i++) {
-		const float3& p = h_output[i];
-		const float3& n = h_output[i + rays.size()];
-		if (!(p.x == 0.0f && p.y == 0.0f && p.z == 0.0f)) {
-			results.push_back( std::make_pair(Point3f(p.x, p.y, p.z), Point3f(n.x, n.y, n.z)) );
+		const glm::vec3& p = h_output[i];
+		const glm::vec3& n = h_output[i + rays.size()];
+		if (p != Point3f(0.0f)) {
+			results.push_back( std::make_pair(p, n) );
 		}
 	}
 	
