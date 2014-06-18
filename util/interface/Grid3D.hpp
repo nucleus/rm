@@ -13,12 +13,10 @@ namespace util {
 	class Grid3D {
 	public:
 		struct Voxel3D {
-			Voxel3D(): coords(0.0f), normal(0.0f), value(0.0f) {}
-			Voxel3D(const Point3f& _p): coords(_p), normal(0.0f), value(0.0f) {}
-			Voxel3D(const Point3f& _p, float _v): coords(_p), normal(0.0f), value(_v) {}
-			Voxel3D(const Point3f& _p, const Point3f& _n, float _v): coords(_p), normal(_n), value(_v) {}
+			Voxel3D(): normal(0.0f), value(0.0f) {}
+			Voxel3D(float _v): normal(0.0f), value(_v) {}
+			Voxel3D(const Point3f& _n, float _v):  normal(_n), value(_v) {}
 			
-			Point3f coords;
 			Point3f normal;
 			float value;
 		};
@@ -45,8 +43,11 @@ namespace util {
 		const Point3f& normal(unsigned idx, unsigned y, unsigned z) const;
 		
 		Point3i dimensions() const { return m_dims; }
-		size_t size() const { return m_grid.size(); }
+		size_t size() const { return m_gridPoints.size(); }
 		const BoundingBox& bounds() const { return m_bounds; }
+		
+		// for CUDA interoperability
+		const Voxel3D* data() const { return &m_gridData[0]; }
 		
 	public:
 		void draw() const;
@@ -59,7 +60,10 @@ namespace util {
 		
 		BoundingBox m_bounds;
 		
-		std::vector< Voxel3D > m_grid;
+		// std::vector< Voxel3D > m_grid;
+		
+		std::vector< Point3f > m_gridPoints;
+		std::vector< Voxel3D > m_gridData;
 	};
 
 }

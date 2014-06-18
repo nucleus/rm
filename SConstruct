@@ -4,7 +4,7 @@ debug = (debugFlag != '')
 arch = ARGUMENTS.get('arch', '')
 archFlag = '-arch='
 if arch == '':
-	archFlag += 'sm_20'
+	archFlag += 'sm_21'
 else:
 	archFlag += arch
 

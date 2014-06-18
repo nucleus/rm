@@ -14,9 +14,6 @@
 
 #include <util/interface/cutil_math.h>
 
-#include <thrust/device_ptr.h>
-#include <thrust/copy.h>
-
 #include <limits.h>
 #include <float.h>
 
@@ -172,19 +169,9 @@ void launchRaymarchKernel(const util::Grid3D& volume, const util::RayVector& ray
 	
 	cudaChannelFormatDesc channelDesc = cudaCreateChannelDesc<float4>();
 	check( cudaMalloc3DArray(&d_volumeArray, &channelDesc, volumeSize), "cudaMalloc3DArray" );
-
-	float4* h_volume = new float4[volume.size()];
-	for (unsigned z = 0; z < dims.z; z++) {
-		for (unsigned y = 0; y < dims.y; y++) {
-			for (unsigned x = 0; x < dims.x; x++) {
-				const Point3f& normal = volume.normal(x,y,z);
-				h_volume[z * (dims.x * dims.y) + y * (dims.x) + x] = make_float4(normal.x, normal.y, normal.z, volume.value(x,y,z));
-			}
-		}
-	}
 	
 	cudaMemcpy3DParms copyParams = {0};
-	copyParams.srcPtr   = make_cudaPitchedPtr((void*)h_volume, volumeSize.width*sizeof(float4), volumeSize.width, volumeSize.height);
+	copyParams.srcPtr   = make_cudaPitchedPtr((void*)volume.data(), volumeSize.width*sizeof(float)*4, volumeSize.width, volumeSize.height);
 	copyParams.dstArray = d_volumeArray;
 	copyParams.extent   = volumeSize;
 	copyParams.kind     = cudaMemcpyHostToDevice;
@@ -228,7 +215,6 @@ void launchRaymarchKernel(const util::Grid3D& volume, const util::RayVector& ray
 	}
 	
 	// cleanup
-	delete[] h_volume;
 	delete[] h_output;
 	check( cudaFree(d_rays), "cudaFree");
 	check( cudaFree(d_output), "cudaFree");

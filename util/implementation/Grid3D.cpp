@@ -31,41 +31,42 @@ util::Grid3D::Grid3D(const Point3f& _min, const Point3f& _max, unsigned _x, unsi
 }
 
 util::Grid3D::~Grid3D() {
-	m_grid.clear();
+	m_gridPoints.clear();
+	m_gridData.clear();
 }
 		
 Point3f util::Grid3D::getGridPoint(const Point3i& idx) const {
 	return getGridPoint(idx.x, idx.y, idx.z);
 }
 Point3f util::Grid3D::getGridPoint(unsigned x, unsigned y, unsigned z) const {
-	return m_grid[z * (m_dims.x * m_dims.y) + y * m_dims.x + x].coords;
+	return m_gridPoints[z * (m_dims.x * m_dims.y) + y * m_dims.x + x];
 }
 
 float& util::Grid3D::value(const Point3i& idx) {
 	return value(idx.x, idx.y, idx.z);
 }
 float& util::Grid3D::value(unsigned x, unsigned y, unsigned z) {
-	return m_grid[z * (m_dims.x * m_dims.y) + y * m_dims.x + x].value;
+	return m_gridData[z * (m_dims.x * m_dims.y) + y * m_dims.x + x].value;
 }
 
 const float& util::Grid3D::value(const Point3i& idx) const {
 	return value(idx.x, idx.y, idx.z);
 }
 const float& util::Grid3D::value(unsigned x, unsigned y, unsigned z) const {
-	return m_grid[z * (m_dims.x * m_dims.y) + y * m_dims.x + x].value;
+	return m_gridData[z * (m_dims.x * m_dims.y) + y * m_dims.x + x].value;
 }
 
 Point3f& util::Grid3D::normal(const Point3i& idx) {
 	return normal(idx.x, idx.y, idx.z);
 }
 Point3f& util::Grid3D::normal(unsigned x, unsigned y, unsigned z) {
-	return m_grid[z * (m_dims.x * m_dims.y) + y * m_dims.x + x].normal;
+	return m_gridData[z * (m_dims.x * m_dims.y) + y * m_dims.x + x].normal;
 }
 const Point3f& util::Grid3D::normal(const Point3i& idx) const {
 	return normal(idx.x, idx.y, idx.z);
 }
 const Point3f& util::Grid3D::normal(unsigned x, unsigned y, unsigned z) const {
-	return m_grid[z * (m_dims.x * m_dims.y) + y * m_dims.x + x].normal;
+	return m_gridData[z * (m_dims.x * m_dims.y) + y * m_dims.x + x].normal;
 }
 
 void util::Grid3D::draw() const {	
@@ -100,8 +101,9 @@ void util::Grid3D::draw() const {
 }
 		
 void util::Grid3D::build() {
-	m_grid.clear();
-	m_grid.resize(m_dims.x * m_dims.y * m_dims.z);
+	m_gridPoints.clear();
+	m_gridPoints.resize(m_dims.x * m_dims.y * m_dims.z);
+	m_gridData.resize(m_dims.x * m_dims.y * m_dims.z);
 	
 	float stepX = m_bounds.extents().x / (m_dims.x-1);
 	float stepY = m_bounds.extents().y / (m_dims.y-1);
@@ -111,7 +113,7 @@ void util::Grid3D::build() {
 		for (unsigned y = 0; y < m_dims.y; y++) {
 			for (unsigned x = 0; x < m_dims.x; x++) {
 				Point3f p(m_bounds.min().x + x * stepX, m_bounds.min().y + y * stepY, m_bounds.min().z + z * stepZ);
-				m_grid[z * (m_dims.x * m_dims.y) + y * m_dims.x + x] = Voxel3D(p);
+				m_gridPoints[z * (m_dims.x * m_dims.y) + y * m_dims.x + x] = p;
 			}
 		}
 	}
