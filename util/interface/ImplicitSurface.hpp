@@ -8,6 +8,8 @@
 #include <vector>
 #include <map>
 
+#include <cuda_runtime.h>
+
 #include <util/interface/Util.hpp>
 #include <util/interface/BoundingBox.hpp>
 #include <util/interface/KDTree.hpp>
@@ -17,7 +19,7 @@
 #define OFF_PARSER_BUF_LENGTH 1024
 
 // CUDA interface
-void launchRaymarchKernel();
+void launchRaymarchKernel(const util::Grid3D& volume, const util::RayVector& rays, unsigned steps, PointNormalData& results);
 
 namespace util {
 	class ImplicitSurface : public KDTree<Point3f> {

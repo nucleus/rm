@@ -10,7 +10,7 @@ else:
 
 ########################################################################################################
 
-includeDirectories = ['.']
+includeDirectories = ['.', '/usr/local/cuda/include']
 libraryDirectories = ['/usr/lib', '/usr/X11R6/lib', '/usr/local/cuda/lib64', '/usr/local/cuda/lib']
 
 commonLibs = ['GL', 'GLU']

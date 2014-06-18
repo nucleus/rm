@@ -147,6 +147,7 @@ void util::ImplicitSurface::intersect(const util::RayVector& rays, PointNormalDa
 
 void util::ImplicitSurface::_intersectGPU(const util::RayVector& rays, PointNormalData& intersections) const {
 	intersections.clear();
+	launchRaymarchKernel(m_grid, rays, m_rmSteps, intersections);
 }
 
 void util::ImplicitSurface::_intersectCPU(const util::RayVector& rays, PointNormalData& intersections) const {
@@ -161,7 +162,7 @@ void util::ImplicitSurface::_intersectCPU(const util::RayVector& rays, PointNorm
 
 bool util::ImplicitSurface::_intersect(const util::Ray& ray, Point3f& hit, Point3f& normal) const {
 	const unsigned steps = m_rmSteps;
-	float tnear = ray.tNear, tfar = ray.tFar;
+	float tnear = 0.0f, tfar = std::numeric_limits<float>::max();
 	
 	// clip ray against bounding box
 	bool intersects = _clipRayAgainstBounds(ray, tnear, tfar);

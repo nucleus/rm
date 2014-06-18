@@ -68,10 +68,6 @@ const Point3f& util::Grid3D::normal(unsigned x, unsigned y, unsigned z) const {
 	return m_grid[z * (m_dims.x * m_dims.y) + y * m_dims.x + x].normal;
 }
 
-Point3i util::Grid3D::dimensions() const {
-	return m_dims;
-}
-		
 void util::Grid3D::draw() const {	
 	glBegin(GL_LINES);
 	glColor3f(0.0f, 1.0f, 0.0f);

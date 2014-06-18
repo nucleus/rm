@@ -44,9 +44,9 @@ namespace util {
 		const Point3f& normal(const Point3i& idx) const;
 		const Point3f& normal(unsigned idx, unsigned y, unsigned z) const;
 		
-		Point3i dimensions() const;
-		
+		Point3i dimensions() const { return m_dims; }
 		size_t size() const { return m_grid.size(); }
+		const BoundingBox& bounds() const { return m_bounds; }
 		
 	public:
 		void draw() const;
