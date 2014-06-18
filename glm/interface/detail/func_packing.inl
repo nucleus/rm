@@ -86,7 +86,7 @@ namespace glm
 
 	GLM_FUNC_QUALIFIER double packDouble2x32(uvec2 const & v)
 	{
-		return reinterpret_cast<double const &>(v);
+		return reinterpret_cast<double const &>(const_cast<uvec2&>(v));
 	}
 
 	GLM_FUNC_QUALIFIER uvec2 unpackDouble2x32(double const & v)

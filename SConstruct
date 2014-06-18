@@ -1,13 +1,17 @@
-compileTestsFlag = ARGUMENTS.get('test', '')
-compileTests = (compileTestsFlag != '')
-
 debugFlag = ARGUMENTS.get('debug', '')
 debug = (debugFlag != '')
+
+arch = ARGUMENTS.get('arch', '')
+archFlag = '-arch='
+if arch == '':
+	archFlag += 'sm_20'
+else:
+	archFlag += arch
 
 ########################################################################################################
 
 includeDirectories = ['.']
-libraryDirectories = ['/usr/lib', '/usr/X11R6/lib']
+libraryDirectories = ['/usr/lib', '/usr/X11R6/lib', '/usr/local/cuda/lib64', '/usr/local/cuda/lib']
 
 commonLibs = ['GL', 'GLU']
 testLibs = commonLibs + []
@@ -24,8 +28,21 @@ if not debug:
 	linkflags += ' -fopenmp'
 
 ########################################################################################################
+	
+def MapSource(env, source):
+	if source[-3:] == ".cu":
+		return env.Cuda(source)
+	return source
+	
+########################################################################################################
 
 env = Environment(CC = 'g++', CCFLAGS = ccflags, LINKFLAGS = linkflags, CPPPATH = includeDirectories)
+
+env.Append(BUILDERS = {'Cuda': Builder(
+	action='/usr/local/cuda/bin/nvcc ' + archFlag + ' $SOURCE -c -o $TARGET -I.',
+    suffix = '.o',
+    src_suffix = '.cu'
+)})
 
 env['BUILD_ROOT'] = Dir('.')
 env['QT4DIR'] = '/usr'
@@ -43,7 +60,7 @@ util/implementation/Grid3D.cpp
 util/implementation/ImplicitSurface.cpp
 """)
 
-libutil = env.Library('util', source = utilSourceFiles, LIBPATH = libraryDirectories)
+#libutil = env.Library('util', source = utilSourceFiles, LIBPATH = libraryDirectories)
 
 sourceFiles = {	'rm' : Split("""
 						rm/implementation/GLWidget.cpp
@@ -51,6 +68,13 @@ sourceFiles = {	'rm' : Split("""
 						rm/implementation/main.cpp
 						""")
 }
+
+cudaSourceFiles = { 'rm' : Split("""
+				util/implementation/ImplicitSurfaceKernels.cu
+				""")
+}
+
+#cudaSourceFiles = { 'rm' : [] }
 
 mocHeaderFiles = {	'rm' : Split("""
 							rm/interface/GLWidget.hpp
@@ -64,15 +88,12 @@ mocs = {}
 for exercise, headers in mocHeaderFiles.iteritems():
 	mocs[exercise] = [env.Moc4(header) for header in headers]
 
-if compileTests:
-	utilitiesTestSources = ['util/test/UtilTest.cpp']
-	env.Program(target = 'UtilityTest', source = utilitiesTestSources, LIBPATH = libraryDirectories, LIBS = libutil + testLibs)
-	
-	kdtreeTestSources = ['util/test/KDTreeTest.cpp']
-	env.Program(target = 'KDTreeTest', source = kdtreeTestSources, LIBPATH = libraryDirectories, LIBS = libutil + testLibs)
-else:
-	for exercise in sourceFiles.keys():
-		if len(sourceFiles[exercise]) == 0:
-			continue
-		name = 'cg2' + exercise
-		env.Program(target = name, source = sourceFiles[exercise] + mocs[exercise], LIBPATH=libraryDirectories, LIBS=mainLibs + libutil)
+for exercise in sourceFiles.keys():
+	if len(sourceFiles[exercise]) == 0:
+		continue
+	name = 'cg2' + exercise
+	guiObjects = env.Object(source = sourceFiles[exercise])
+	mocObjects = env.Object(source = mocs[exercise])	
+	cudaObjects = [MapSource(env, src) for src in cudaSourceFiles[exercise]]
+	libObjects = env.Object(source = utilSourceFiles)
+	env.Program(target = name, source = guiObjects + mocObjects + libObjects + cudaObjects, LIBPATH=libraryDirectories, LIBS=mainLibs + ['cudart'])

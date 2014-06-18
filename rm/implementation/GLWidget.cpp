@@ -20,6 +20,7 @@
 
 #include <iostream>
 #include <cmath>
+#include <algorithm>
 
 #ifdef REPORT_LEVEL
 #undef REPORT_LEVEL
@@ -38,6 +39,9 @@ GLWidget::GLWidget(QWidget * parent):
   m_rotation(0.0f),
   m_lightPos(-1.0f, -1.0f, -10.0f, 1.0),
   m_lightAngle(0.0f),
+  m_lightAmbient(0.4, 0.4, 0.4, 1.0),
+  m_lightDiffuse(0.8, 0.8, 0.8, 1.0),
+  m_lightSpecular(0.2, 0.2, 0.2, 1.0),
   m_drawPoints(true),
   m_drawGrid(false),
   m_drawWLS(false),
@@ -51,22 +55,19 @@ GLWidget::GLWidget(QWidget * parent):
 /////////////////////////////////////////////////////////////////////////
 
 void GLWidget::initializeGL() {
-    /// Light
-    GLfloat light_ambient[] = { 0.4, 0.4, 0.4, 1.0 };
-    GLfloat light_diffuse[] = { 0.8, 0.8, 0.8, 1.0 };
-    GLfloat light_specular[] = { 0.2, 0.2, 0.2, 1.0 };
+	/// Light
 
-    glLightfv(GL_LIGHT0, GL_AMBIENT, light_ambient);
-    glLightfv(GL_LIGHT0, GL_DIFFUSE, light_diffuse);
-    glLightfv(GL_LIGHT0, GL_SPECULAR, light_specular);
-    glLightfv(GL_LIGHT0, GL_POSITION, glm::value_ptr(m_lightPos));
+	glLightfv(GL_LIGHT0, GL_AMBIENT, glm::value_ptr(m_lightAmbient));
+	glLightfv(GL_LIGHT0, GL_DIFFUSE, glm::value_ptr(m_lightDiffuse));
+	glLightfv(GL_LIGHT0, GL_SPECULAR, glm::value_ptr(m_lightSpecular));
+	glLightfv(GL_LIGHT0, GL_POSITION, glm::value_ptr(m_lightPos));
 
-    glEnable(GL_LIGHTING);
-    glEnable(GL_COLOR_MATERIAL);
-    glEnable(GL_LIGHT0);
+	glEnable(GL_LIGHTING);
+	glEnable(GL_COLOR_MATERIAL);
+	glEnable(GL_LIGHT0);
 
-    // enable normalization of vertex normals
-    glEnable(GL_NORMALIZE);
+	// enable normalization of vertex normals
+	glEnable(GL_NORMALIZE);
 
 	// smooth surfaces
 	glShadeModel(GL_SMOOTH);
@@ -165,17 +166,23 @@ void GLWidget::paintGL() {
 	
 	if (m_drawRM) {
 		if (m_rayMarchPoints.size()) {
-			glBegin(GL_POINTS);
-			glColor3f(0.0f, 0.0f, 1.0f);
-			
 			const unsigned maxRender = 100000;
 			unsigned step = m_rayMarchPoints.size() / maxRender;
 			if (!step) {
 				step = 1;
 			}
 			
+			glBegin(GL_POINTS);
+			glColor3f(0.0f, 0.0f, 1.0f);
 			for (unsigned i = 0; i < m_rayMarchPoints.size(); i += step) {
-				const Point3f& p = m_rayMarchPoints[i];
+				Point3f color;
+				
+				const Point3f& p = m_rayMarchPoints[i].first;
+				const Point3f& n = m_rayMarchPoints[i].second;
+				
+				_shade(p, n, color);
+				
+				glColor3f(color.x, color.y, color.z);
 				glVertex3f(p.x, p.y, p.z);
 			}
 			glEnd();
@@ -277,13 +284,7 @@ void GLWidget::raymarch() {
 
 void GLWidget::traceRays(const util::RayVector& _rays) {
 	report("GLWidget::traceRays()");
-	m_rayMarchPoints.clear();
-	for (unsigned i = 0; i < _rays.size(); i++) {
-		Point3f hit;
-		if (m_surface.intersect(_rays[i], hit)) {
-			m_rayMarchPoints.push_back(hit);
-		}
-	}
+	m_surface.intersect(_rays, m_rayMarchPoints, m_enableGPU);
 }
 
 void GLWidget::computeWLS() {
@@ -311,7 +312,7 @@ void GLWidget::computeWLS() {
 					float w = util::wendland(glm::distance(p, points[i]), m_radius);
 					sum += w * values[i];
 					if (normals[i] != Point3f(0.0f)) {
-						normal += normals[i];
+						normal += w * normals[i];
 						nonZeroNormals++;
 					}
 				}
@@ -324,7 +325,6 @@ void GLWidget::computeWLS() {
 				
 				grid.value(x, y, z) = sum;
 				grid.normal(x, y, z) = normal;
-				
 			}
 		}
 	}	
@@ -351,9 +351,9 @@ void GLWidget::generateRays(util::RayVector& _rays) {
 
 	// retrieve camera location
 	Point3f origin;
-    origin.x = -(modelview[0] * modelview[12] + modelview[1] * modelview[13] + modelview[2] * modelview[14]);
-    origin.y = -(modelview[4] * modelview[12] + modelview[5] * modelview[13] + modelview[6] * modelview[14]);
-    origin.z = -(modelview[8] * modelview[12] + modelview[9] * modelview[13] + modelview[10] * modelview[14]);
+	origin.x = -(modelview[0] * modelview[12] + modelview[1] * modelview[13] + modelview[2] * modelview[14]);
+	origin.y = -(modelview[4] * modelview[12] + modelview[5] * modelview[13] + modelview[6] * modelview[14]);
+	origin.z = -(modelview[8] * modelview[12] + modelview[9] * modelview[13] + modelview[10] * modelview[14]);
 	
 	report("GLWidget::generateRays(): Viewport w = " << w << ", h = " << h << ", ray origin @ " << origin);
 
@@ -395,4 +395,39 @@ void GLWidget::generateRays(util::RayVector& _rays) {
 	
 	report("GLWidget::generateRays(): Top left ray dir = " << _rays[0].d);
 	report("GLWidget::generateRays(): Top right ray dir = " << _rays[w-1].d);
+}
+
+//////////////////////////////////////////////////////////////////////////////////////////////////
+
+// implements blinn-phong shading model
+void GLWidget::_shade(const Point3f& p, const Point3f& n, Point3f& color) const {
+	color = Point3f(1.0f, 0.0f, 0.0f);
+	return;
+	
+	double modelview[16];
+	glGetDoublev(GL_MODELVIEW_MATRIX, modelview);
+
+	// retrieve camera location
+	Point3f cam;
+	cam.x = -(modelview[0] * modelview[12] + modelview[1] * modelview[13] + modelview[2] * modelview[14]);
+	cam.y = -(modelview[4] * modelview[12] + modelview[5] * modelview[13] + modelview[6] * modelview[14]);
+	cam.z = -(modelview[8] * modelview[12] + modelview[9] * modelview[13] + modelview[10] * modelview[14]);
+	
+	// get incident directions
+	glm::vec3 L = glm::normalize(glm::vec3(m_lightPos) - p);
+	glm::vec3 H = glm::normalize(glm::normalize(cam-p) + L);
+	float NdotH = glm::dot(n, H);
+
+	// ambient color
+	glm::vec3 amb(m_lightAmbient);
+
+	// diffuse color
+	float LdotN = std::max(glm::dot(L, n), 0.0f);
+	glm::vec3 diff = glm::vec3(m_lightDiffuse) * LdotN;
+
+	// specular component, scale by 4.0 to get visible highlights
+	float HdotN = std::max(glm::dot(H, n), 0.0f);
+	glm::vec3 spec = glm::vec3(m_lightSpecular) * (float)pow(HdotN, 4.0f);
+
+	color = glm::clamp(amb + diff + spec, 0.0f, 1.0f);
 }

@@ -137,7 +137,29 @@ void util::ImplicitSurface::_gatherPoints(Node* node, const util::BoundingBox& b
 
 /////////////////////////////////////////////////////////////////////////////////////
 
-bool util::ImplicitSurface::intersect(const util::Ray& ray, Point3f& hit) const {
+void util::ImplicitSurface::intersect(const util::RayVector& rays, PointNormalData& intersections, bool enableGPU) const {
+	if (enableGPU) {
+		_intersectGPU(rays, intersections);
+	} else {
+		_intersectCPU(rays, intersections);
+	}
+}
+
+void util::ImplicitSurface::_intersectGPU(const util::RayVector& rays, PointNormalData& intersections) const {
+	intersections.clear();
+}
+
+void util::ImplicitSurface::_intersectCPU(const util::RayVector& rays, PointNormalData& intersections) const {
+	intersections.clear();
+	for (unsigned i = 0; i < rays.size(); i++) {
+		Point3f hit, normal;
+		if (_intersect(rays[i], hit, normal)) {
+			intersections.push_back(std::make_pair(hit, normal));
+		}
+	}
+}
+
+bool util::ImplicitSurface::_intersect(const util::Ray& ray, Point3f& hit, Point3f& normal) const {
 	const unsigned steps = m_rmSteps;
 	float tnear = ray.tNear, tfar = ray.tFar;
 	
@@ -158,7 +180,8 @@ bool util::ImplicitSurface::intersect(const util::Ray& ray, Point3f& hit) const 
 	// trace forward through the bounding box
 	for (unsigned i = 1; i < steps-1; i++) { // -1 to not get too close to tfar
 		Point3f target = ray(tnear + i * step);
-		float implicitValue = _evaluate(target);
+		float implicitValue; Point3f implicitNormal;
+		_evaluate(target, &implicitValue, &implicitNormal);
 		
 		if (!signWasSet) {
 			if (implicitValue < 0.0f) {
@@ -171,11 +194,7 @@ bool util::ImplicitSurface::intersect(const util::Ray& ray, Point3f& hit) const 
 		} else {
 			bool enteredSurface = (sign == true && implicitValue < 0.0f) || (sign == false && implicitValue > 0.0f);
 			if (enteredSurface) { // ray entered surface
-				if (i == 1) {
-					hit = target;
-					return true;
-				}
-				
+			
 				// compute bounds between this and the last step for backward trace
 				float tStart = tnear + (i-1) * step;
 				float tEnd = tnear + i * step;
@@ -184,11 +203,12 @@ bool util::ImplicitSurface::intersect(const util::Ray& ray, Point3f& hit) const 
 				// trace backwards from step that changed the sign
 				for (int j = steps-1; j >= 0; j--) {
 					target = ray(tStart + j * smallStep);
-					implicitValue = _evaluate(target);
+					_evaluate(target, &implicitValue, &normal);
 					
 					bool exitedSurface = (sign == true && implicitValue > 0.0f) || (sign == false && implicitValue < 0.0f);
 					if (exitedSurface) {
 						hit = target;
+						normal = implicitNormal;
 						return true;
 					}
 				}
@@ -198,6 +218,7 @@ bool util::ImplicitSurface::intersect(const util::Ray& ray, Point3f& hit) const 
 	
 	return false;
 }
+
 
 // courtesy of Jeroen Baert (http://gamedev.stackexchange.com/questions/18436/most-efficient-aabb-vs-ray-collision-algorithms)
 bool util::ImplicitSurface::_clipRayAgainstBounds(const util::Ray& ray, float& tnear, float& tfar) const {
@@ -236,10 +257,6 @@ bool util::ImplicitSurface::_clipRayAgainstBounds(const util::Ray& ray, float& t
     return true;
 }
 
-static float lerp(float a, float b, float t) {
-	return (1-t) * a + t * b;
-}
-
 void util::ImplicitSurface::_voxel(const Point3f& p, Point3i& base, Point3f& interp) const {
 	glm::vec3 extents = m_bounds.extents();
 	Point3i dims = m_grid.dimensions();
@@ -254,32 +271,54 @@ void util::ImplicitSurface::_voxel(const Point3f& p, Point3i& base, Point3f& int
 }
 
 // trilinearly interpolates the value of the implicit function f from WLS values at grid locations
-float util::ImplicitSurface::_evaluate(const Point3f& p) const {
+void util::ImplicitSurface::_evaluate(const Point3f& p, float* value, Point3f* normal) const {
+	
+	// determine target voxel
 	Point3i base;
 	Point3f interp;
-	
 	_voxel(p, base, interp);
 	
-	float f000 = m_grid.value(base.x, base.y, base.z);
-	float f100 = m_grid.value(base.x + 1, base.y, base.z);
-	float f010 = m_grid.value(base.x, base.y + 1, base.z);
-	float f110 = m_grid.value(base.x + 1, base.y + 1, base.z);
-	float f001 = m_grid.value(base.x, base.y, base.z + 1);
-	float f101 = m_grid.value(base.x + 1, base.y, base.z + 1);
-	float f011 = m_grid.value(base.x, base.y + 1, base.z + 1);
-	float f111 = m_grid.value(base.x + 1, base.y + 1, base.z + 1);
+	if (value) {
+		float f000 = m_grid.value(base.x, base.y, base.z);
+		float f100 = m_grid.value(base.x + 1, base.y, base.z);
+		float f010 = m_grid.value(base.x, base.y + 1, base.z);
+		float f110 = m_grid.value(base.x + 1, base.y + 1, base.z);
+		float f001 = m_grid.value(base.x, base.y, base.z + 1);
+		float f101 = m_grid.value(base.x + 1, base.y, base.z + 1);
+		float f011 = m_grid.value(base.x, base.y + 1, base.z + 1);
+		float f111 = m_grid.value(base.x + 1, base.y + 1, base.z + 1);
+		
+		float x00 = util::lerp<float>(f000, f100, interp.x);
+		float x10 = util::lerp<float>(f010, f110, interp.x);
+		float x01 = util::lerp<float>(f001, f101, interp.x);
+		float x11 = util::lerp<float>(f011, f111, interp.x);
+		
+		float y0 = util::lerp<float>(x00, x10, interp.y);
+		float y1 = util::lerp<float>(x01, x11, interp.y);
+		
+		*value = util::lerp<float>(y0, y1, interp.z);	
+	}
 	
-	float x00 = lerp(f000, f100, interp.x);
-	float x10 = lerp(f010, f110, interp.x);
-	float x01 = lerp(f001, f101, interp.x);
-	float x11 = lerp(f011, f111, interp.x);
-	
-	float y0 = lerp(x00, x10, interp.y);
-	float y1 = lerp(x01, x11, interp.y);
-	
-	float z = lerp(y0, y1, interp.z);
-	
-	return z;
+	if (normal) {
+		Point3f f000 = m_grid.normal(base.x, base.y, base.z);
+		Point3f f100 = m_grid.normal(base.x + 1, base.y, base.z);
+		Point3f f010 = m_grid.normal(base.x, base.y + 1, base.z);
+		Point3f f110 = m_grid.normal(base.x + 1, base.y + 1, base.z);
+		Point3f f001 = m_grid.normal(base.x, base.y, base.z + 1);
+		Point3f f101 = m_grid.normal(base.x + 1, base.y, base.z + 1);
+		Point3f f011 = m_grid.normal(base.x, base.y + 1, base.z + 1);
+		Point3f f111 = m_grid.normal(base.x + 1, base.y + 1, base.z + 1);
+		
+		Point3f x00 = util::lerp<Point3f>(f000, f100, interp.x);
+		Point3f x10 = util::lerp<Point3f>(f010, f110, interp.x);
+		Point3f x01 = util::lerp<Point3f>(f001, f101, interp.x);
+		Point3f x11 = util::lerp<Point3f>(f011, f111, interp.x);
+		
+		Point3f y0 = util::lerp<Point3f>(x00, x10, interp.y);
+		Point3f y1 = util::lerp<Point3f>(x01, x11, interp.y);
+		
+		*normal = util::lerp<Point3f>(y0, y1, interp.z);	
+	}
 }
 
 /////////////////////////////////////////////////////////////////////////////////////
@@ -430,6 +469,8 @@ bool util::ImplicitSurface::readOFF(const std::string& filename, bool normalizeM
 
 void util::ImplicitSurface::_generateBoundaryConditions() {
 	float eps = glm::length(m_bounds.extents()) * 0.001f;
+	
+	#pragma omp parallel for schedule(dynamic)
 	for (int i = 0; i < m_numPoints; i++) {
 		const Point3f& p = m_points[i];
 		const Point3f& norm = m_normals[i];

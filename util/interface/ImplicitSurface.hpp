@@ -16,6 +16,9 @@
 
 #define OFF_PARSER_BUF_LENGTH 1024
 
+// CUDA interface
+void launchRaymarchKernel();
+
 namespace util {
 	class ImplicitSurface : public KDTree<Point3f> {
 	public:
@@ -102,8 +105,13 @@ namespace util {
 		void getNormals(const IndexVector& indices, PointVector& normals) const;
 		
 	public:
-		bool intersect(const util::Ray& ray, Point3f& hit) const;
+		void intersect(const util::RayVector& rays, PointNormalData& intersections, bool enableGPU) const;
 		
+	protected:
+		void _intersectGPU(const util::RayVector& rays, PointNormalData& intersections) const;
+		void _intersectCPU(const util::RayVector& rays, PointNormalData& intersections) const;
+		
+		bool _intersect(const util::Ray& ray, Point3f& hit, Point3f& normal) const;
 	public:
 		bool readOFF(const std::string& filename, bool normalizeModel = false);
 			
@@ -140,7 +148,7 @@ namespace util {
 		
 		bool _clipRayAgainstBounds(const util::Ray& ray, float& tnear, float& tfar) const;
 		
-		float _evaluate(const Point3f& p) const;
+		void _evaluate(const Point3f& p, float* value = NULL, Point3f* normal = NULL) const;
 		void _voxel(const Point3f& p, Point3i& base, Point3f& interp) const;
 		
 		void _updateGridDim(Axis axis, unsigned dim);

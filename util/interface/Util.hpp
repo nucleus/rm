@@ -39,6 +39,8 @@ typedef glm::vec3 Point2f;
 typedef glm::i32vec2 Point2i;
 
 typedef std::vector< Point3f > PointVector;
+typedef std::pair< Point3f, Point3f > PointNormalPair;
+typedef std::vector< PointNormalPair > PointNormalData;
 typedef std::set< Point3f > PointSet;
 
 typedef std::vector< Point3f* > PointPtrVector;
@@ -69,6 +71,11 @@ namespace util {
 	double elapsedTime(timeval& start, timeval& end);
 	
 	float wendland(float d, float h);
+	
+	template< typename T >
+	T lerp(const T& a, const T& b, float t) {
+		return (1-t) * a + t * b;
+	}
 }
 
 #if defined(WIN32) || defined(_WIN32) || defined(__WIN32) && !defined(__CYGWIN__)
