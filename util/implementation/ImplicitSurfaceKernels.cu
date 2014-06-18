@@ -20,7 +20,6 @@
 // constant data
 __constant__ float3 c_bboxMin;
 __constant__ float3 c_bboxMax;
-__constant__ int3 c_gridDims;
 
 // textures
 texture<float4, 3, cudaReadModeElementType> tex_voxels;
@@ -32,11 +31,11 @@ inline __device__ glm::vec3 make_vec3(float3 a) {
 __device__
 bool clipRayAgainstAABB(const glm::vec3& org, const glm::vec3& dir, float& tnear, float& tfar) {
 	glm::vec3 T_1, T_2;
-	double t_near = -FLT_MAX;
-	double t_far = FLT_MAX;
+	tnear = -FLT_MAX;
+	tfar = FLT_MAX;
 	
-	glm::vec3 min = make_vec3(c_bboxMin);
-	glm::vec3 max = make_vec3(c_bboxMax);
+	glm::vec3 min(make_vec3(c_bboxMin));
+	glm::vec3 max(make_vec3(c_bboxMax));
 	
 	for (int i = 0; i < 3; i++){
 		if (dir[i] == 0){
@@ -52,24 +51,22 @@ bool clipRayAgainstAABB(const glm::vec3& org, const glm::vec3& dir, float& tnear
 				T_1 = T_2;
 				T_2 = tmp;
 			}
-			if (T_1[i] > t_near) {
-				t_near = T_1[i];
+			if (T_1[i] > tnear) {
+				tnear = T_1[i];
 			}
-			if (T_2[i] < t_far) {
-				t_far = T_2[i];
+			if (T_2[i] < tfar) {
+				tfar = T_2[i];
 			}
-			if ( (t_near > t_far) || (t_far < 0.0f) || (fabsf(t_far - t_near) < 0.0001f) ) {
+			if ( (tnear > tfar) || (tfar < 0.0f) || (fabsf(tfar - tnear) < 0.0001f) ) {
 				return false;
 			}
 		}
 	}
 	
-	tnear = t_near; tfar = t_far;
-	
 	return true;
 }
 
-__device__
+inline __device__
 void evaluateGrid(const glm::vec3& target, float* value, glm::vec3* normal) {
 	glm::vec3 coords = (target - make_vec3(c_bboxMin)) / (make_vec3(c_bboxMax) - make_vec3(c_bboxMin));
 	float4 interp = tex3D(tex_voxels, coords.x, coords.y, coords.z);
@@ -128,12 +125,11 @@ void raymarchKernel(glm::vec3* d_rays, glm::vec3* d_output, unsigned n, unsigned
 				
 					// compute bounds between this and the last step for backward trace
 					float tStart = tnear + (i-1) * step;
-					float tEnd = tnear + i * step;
-					float smallStep = (tEnd - tStart) / steps;
+					step = (tnear + i * step - tStart) / steps;
 					
 					// trace backwards from step that changed the sign
 					for (int j = steps-1; j >= 0; j--) {
-						target = org + dir * (tStart + j * smallStep);
+						target = org + dir * (tStart + j * step);
 						evaluateGrid(target, &implicitValue, &normal);
 						
 						bool exitedSurface = (sign == true && implicitValue > 0.0f) || (sign == false && implicitValue < 0.0f);
@@ -160,7 +156,6 @@ void launchRaymarchKernel(const util::Grid3D& volume, const util::RayVector& ray
 	// copy bbox data to const
 	check( cudaMemcpyToSymbol(c_bboxMin, glm::value_ptr(volume.bounds().min()), sizeof(float3)), "cudaMemcpyToSymbol" );
 	check( cudaMemcpyToSymbol(c_bboxMax, glm::value_ptr(volume.bounds().max()), sizeof(float3)), "cudaMemcpyToSymbol" );
-	check( cudaMemcpyToSymbol(c_gridDims, glm::value_ptr(volume.dimensions()), sizeof(int3)), "cudaMemcpyToSymbol" );
 	
 	// initialize grid textures
 	cudaArray* d_volumeArray;
