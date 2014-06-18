@@ -59,6 +59,7 @@ protected:
 	bool m_drawGrid;
 	bool m_drawWLS;
 	bool m_drawRM;
+	unsigned m_drawRMPoints;
 	
 	bool m_recomputeWLS;
 	
@@ -83,6 +84,8 @@ public slots:
 	void setRenderGrid(bool enable) { m_drawGrid = enable; updateGL(); }
 	void setRenderWLS(bool enable) { m_drawWLS = enable; updateGL(); }
 	void setRenderRM(bool enable) { m_drawRM = enable; updateGL(); }
+	
+	void setMaxRenderPoints(int points) { m_drawRMPoints = points; updateGL(); }
 	
 	void enableCPUDevice() { m_enableGPU = false; m_recomputeWLS = true; }
 	void enableGPUDevice() { m_enableGPU = true; m_recomputeWLS = true; }

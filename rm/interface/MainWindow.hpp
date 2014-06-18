@@ -38,7 +38,11 @@ private:
 	class QCheckBox* uiRenderPoints;
 	class QCheckBox* uiRenderGrid;
 	class QCheckBox* uiRenderWLS;
+	
 	class QCheckBox* uiRenderRM;
+	
+	class QLabel* uiRenderRMPointsLabel;
+	class QSpinBox* uiRenderRMPoints;
 	
 	class QRadioButton* uiDeviceSelector[2];
 	

@@ -35,6 +35,8 @@ MainWindow::MainWindow(QMainWindow * parent) : QMainWindow(parent)
 	connect(uiRenderGrid, SIGNAL(toggled(bool)), glWidget, SLOT(setRenderGrid(bool)));
 	connect(uiRenderWLS, SIGNAL(toggled(bool)), glWidget, SLOT(setRenderWLS(bool)));
 	connect(uiRenderRM, SIGNAL(toggled(bool)), glWidget, SLOT(setRenderRM(bool)));
+
+	connect(uiRenderRMPoints, SIGNAL(valueChanged(int)), glWidget, SLOT(setMaxRenderPoints(int)));
 	
 	connect(uiDeviceSelector[0], SIGNAL(pressed()), glWidget, SLOT(enableCPUDevice()));
 	connect(uiDeviceSelector[1], SIGNAL(pressed()), glWidget, SLOT(enableGPUDevice()));
@@ -45,11 +47,17 @@ MainWindow::MainWindow(QMainWindow * parent) : QMainWindow(parent)
 	// default settings
 	uiLeafSize->setValue(8);
 	uiTreeDepth->setValue(24);
+	
 	for (int i = 0; i < 3; i++) { uiGridDimensions[i]->setValue(10); }
+	
 	uiRadius->setValue(0.5);
 	uiRadius->setSingleStep(0.1);
+	
 	uiSteps->setValue(100);
 	uiSteps->setSingleStep(5);
+	
+	uiRenderRMPoints->setValue(100000);
+	uiRenderRMPoints->setSingleStep(10000);
 	
 	uiDeviceSelector[0]->setChecked(true);
 	
@@ -124,6 +132,13 @@ void MainWindow::setupUi()
 	uiRenderRM = new QCheckBox("Render Raymarch Results");
 	layout->addWidget(uiRenderRM, row++, 0, 1, 3, Qt::AlignTop);
     
+	uiRenderRMPointsLabel = new QLabel("Render max. points");
+	layout->addWidget(uiRenderRMPointsLabel, row, 0, 1, 2, Qt::AlignTop);
+	uiRenderRMPoints = new QSpinBox();
+	uiRenderRMPoints->setMinimum(10000);
+	uiRenderRMPoints->setMaximum(10000000);
+	layout->addWidget(uiRenderRMPoints, row++, 2, 1, 1, Qt::AlignTop);
+	
 	uiDeviceSelector[0] = new QRadioButton("CPU");
 	layout->addWidget(uiDeviceSelector[0], row, 0, 1, 1, Qt::AlignTop);
 	uiDeviceSelector[1] = new QRadioButton("GPU");

@@ -46,7 +46,9 @@ GLWidget::GLWidget(QWidget * parent):
   m_drawGrid(false),
   m_drawWLS(false),
   m_drawRM(false),
-  m_recomputeWLS(true) {
+  m_drawRMPoints(100000),
+  m_recomputeWLS(true),
+  m_enableGPU(false) {
 
 	setFocusPolicy(Qt::StrongFocus);
 	setMouseTracking(true);
@@ -166,8 +168,7 @@ void GLWidget::paintGL() {
 	
 	if (m_drawRM) {
 		if (m_rayMarchPoints.size()) {
-			const unsigned maxRender = 100000;
-			unsigned step = m_rayMarchPoints.size() / maxRender;
+			unsigned step = m_rayMarchPoints.size() / m_drawRMPoints;
 			if (!step) {
 				step = 1;
 			}
@@ -201,6 +202,10 @@ void GLWidget::mouseMoveEvent(QMouseEvent * event) {
 			m_lightAngle += dx;
 		} else {
 			m_rotation += glm::vec2(8.0f * dy, 8.0f * dx);
+			
+			if (m_enableGPU && m_rayMarchPoints.size()) {
+				raymarch();
+			}
 		}
 		updateGL();
 	}
@@ -237,7 +242,7 @@ void GLWidget::loadFile() {
 	float xSpan = m_surface.boundingBox().extents().x;
 	m_camera.eye.z = -5.0f * (xSpan / (tan(80.0f / 180.0f * 3.14159f)));
     
-    updateGL();
+	updateGL();
 }
 
 void GLWidget::wls() {
