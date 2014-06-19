@@ -6,6 +6,8 @@
 #include <algorithm>
 #include <GL/glew.h>
 
+#include <QElapsedTimer>
+
 #include <util/interface/ImplicitSurface.hpp>
 #include <glm/interface/gtx/norm.hpp>
 

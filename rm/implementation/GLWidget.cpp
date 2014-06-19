@@ -17,6 +17,7 @@
 #include <QMouseEvent>
 #include <QFileDialog>
 #include <QMessageBox>
+#include <QElapsedTimer>
 
 #include <iostream>
 #include <cmath>
@@ -203,7 +204,7 @@ void GLWidget::mouseMoveEvent(QMouseEvent * event) {
 		} else {
 			m_rotation += glm::vec2(8.0f * dy, 8.0f * dx);
 			
-			if (m_enableGPU && m_rayMarchPoints.size()) {
+			if (m_enableGPU && m_immediateMode && m_drawRM) {
 				raymarch();
 			}
 		}

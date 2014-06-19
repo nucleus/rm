@@ -35,6 +35,7 @@ MainWindow::MainWindow(QMainWindow * parent) : QMainWindow(parent)
 	connect(uiRenderGrid, SIGNAL(toggled(bool)), glWidget, SLOT(setRenderGrid(bool)));
 	connect(uiRenderWLS, SIGNAL(toggled(bool)), glWidget, SLOT(setRenderWLS(bool)));
 	connect(uiRenderRM, SIGNAL(toggled(bool)), glWidget, SLOT(setRenderRM(bool)));
+	connect(uiImmediateMode, SIGNAL(toggled(bool)), glWidget, SLOT(setImmediateMode(bool)));
 
 	connect(uiRenderRMPoints, SIGNAL(valueChanged(int)), glWidget, SLOT(setMaxRenderPoints(int)));
 	
@@ -131,6 +132,8 @@ void MainWindow::setupUi()
 	layout->addWidget(uiRenderWLS, row++, 0, 1, 3, Qt::AlignTop);
 	uiRenderRM = new QCheckBox("Render Raymarch Results");
 	layout->addWidget(uiRenderRM, row++, 0, 1, 3, Qt::AlignTop);
+	uiImmediateMode = new QCheckBox("Immediate Mode");
+	layout->addWidget(uiImmediateMode, row++, 0, 1, 3, Qt::AlignTop);
     
 	uiRenderRMPointsLabel = new QLabel("Render max. points");
 	layout->addWidget(uiRenderRMPointsLabel, row, 0, 1, 2, Qt::AlignTop);

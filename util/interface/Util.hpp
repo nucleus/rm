@@ -88,12 +88,18 @@ namespace util {
 	}
 
 #else
-
+/*
 #define GET_TIME(_OP) { timeval start, end; \
 	gettimeofday(&start, 0); \
 	_OP; \
 	gettimeofday(&end, 0); \
 	time = util::elapsedTime(start, end); \
+	}*/
+
+#define GET_TIME(_OP) { QElapsedTimer timer; \
+	timer.start(); \
+	_OP; \
+	time = (float)timer.nsecsElapsed() / 1000000000.0f; \
 	}
 
 #endif

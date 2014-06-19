@@ -38,8 +38,8 @@ private:
 	class QCheckBox* uiRenderPoints;
 	class QCheckBox* uiRenderGrid;
 	class QCheckBox* uiRenderWLS;
-	
 	class QCheckBox* uiRenderRM;
+	class QCheckBox* uiImmediateMode;
 	
 	class QLabel* uiRenderRMPointsLabel;
 	class QSpinBox* uiRenderRMPoints;
