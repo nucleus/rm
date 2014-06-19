@@ -48,6 +48,7 @@ GLWidget::GLWidget(QWidget * parent):
   m_drawWLS(false),
   m_drawRM(false),
   m_drawRMPoints(100000),
+  m_immediateMode(false),
   m_recomputeWLS(true),
   m_enableGPU(false) {
 
