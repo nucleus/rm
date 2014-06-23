@@ -7,12 +7,24 @@
 	err = expr; \
 	if (err != cudaSuccess) { std::cerr << "CUDA ERROR (" << cudaGetErrorString(err) << "): " << msg << std::endl; } \
 	}
+	
+#define checkThrust(expr, msg) { \
+	try { \
+	expr; \
+	} catch(thrust::system_error &e) { \
+		std::cerr << "THRUST ERROR (" << e.what() << "): " << msg << std::endl; \
+	} \
+	}
 
 #include <util/interface/Util.hpp>
 #include <util/interface/ImplicitSurface.hpp>
 #include <glm/interface/gtc/type_ptr.hpp>
 
 #include <util/interface/cutil_math.h>
+
+#include <thrust/device_ptr.h>
+#include <thrust/copy.h>
+#include <thrust/device_vector.h>
 
 #include <limits.h>
 #include <float.h>
@@ -24,7 +36,7 @@ __constant__ float3 c_bboxMax;
 // textures
 texture<float4, 3, cudaReadModeElementType> tex_voxels;
 
-inline __device__ glm::vec3 make_vec3(float3 a) {
+inline __device__ glm::vec3 make_vec3(const float3& a) {
 	return glm::vec3(a.x, a.y, a.z);
 }
 
@@ -67,27 +79,22 @@ bool clipRayAgainstAABB(const glm::vec3& org, const glm::vec3& dir, float& tnear
 }
 
 inline __device__
-void evaluateGrid(const glm::vec3& target, float* value, glm::vec3* normal) {
+void evaluateGrid(const glm::vec3& target, float& value, glm::vec3& normal) {
 	glm::vec3 coords = (target - make_vec3(c_bboxMin)) / (make_vec3(c_bboxMax) - make_vec3(c_bboxMin));
 	float4 interp = tex3D(tex_voxels, coords.x, coords.y, coords.z);
-	if (value) {
-		*value = interp.w;
-	}
-	if (normal) {
-		*normal = glm::vec3(interp.x, interp.y, interp.z);
-	}
+	value = interp.w;
+	normal = glm::vec3(interp.x, interp.y, interp.z);
 }
 
 __global__
-void raymarchKernel(glm::vec3* d_rays, glm::vec3* d_output, unsigned n, unsigned steps) {
+void raymarchKernel(glm::vec3 org, glm::vec3* d_rays, PointNormalPair* d_output, unsigned n, unsigned steps) {
 	unsigned idx = blockIdx.x * blockDim.x + threadIdx.x;
 	
 	if (idx > n) {
 		return;
 	}
 	
-	glm::vec3 org = d_rays[2*idx];
-	glm::vec3 dir = d_rays[2*idx+1];
+	glm::vec3 dir = d_rays[idx];
 	
 	glm::vec3 hit, normal;
 	float tnear, tfar;
@@ -103,37 +110,43 @@ void raymarchKernel(glm::vec3* d_rays, glm::vec3* d_output, unsigned n, unsigned
 		float step = (tfar - tnear) / steps;
 
 		// set sign to unknown at the beginning
-		bool sign, signWasSet = false;
-
-		// trace forward through the bounding box
-		for (unsigned i = 1; i < steps-1; i++) { // -1 to not get too close to tfar
+		char sign = 0;
+		
+		// find location where sign is defined first
+		int i = 0;
+		for (i = 1; i < steps-1; i++) { // -1 to not get too close to tfar
 			glm::vec3 target = org + dir * (tnear + i * step);
 			float implicitValue; glm::vec3 implicitNormal;
-			evaluateGrid(target, &implicitValue, &implicitNormal);
 			
-			if (!signWasSet) {
-				if (implicitValue < 0.0f) {
-					sign = false;
-					signWasSet = true;
-				} else if (implicitValue > 0.0f) {
-					sign = true;
-					signWasSet = true;
-				}
-			} else {
-				bool enteredSurface = (sign == true && implicitValue < 0.0f) || (sign == false && implicitValue > 0.0f);
-				if (enteredSurface) { // ray entered surface
+			evaluateGrid(target, implicitValue, implicitNormal);
+			
+			if (implicitValue < 0.0f) {
+				sign = -1;
+				break;
+			} else if (implicitValue > 0.0f) {
+				sign = 1;
+				break;
+			}
+		}
+		
+		// trace until sign changes
+		if (sign) {
+			for(; i < steps-1; i++) {
+				glm::vec3 target = org + dir * (tnear + i * step);
+				float implicitValue; glm::vec3 implicitNormal;
 				
-					// compute bounds between this and the last step for backward trace
+				evaluateGrid(target, implicitValue, implicitNormal);
+				
+				if ((sign == 1 && implicitValue < 0.0f) || (sign == -1 && implicitValue > 0.0f)) { // ray entered surface
 					float tStart = tnear + (i-1) * step;
 					step = (tnear + i * step - tStart) / steps;
 					
-					// trace backwards from step that changed the sign
 					for (int j = steps-1; j >= 0; j--) {
 						target = org + dir * (tStart + j * step);
-						evaluateGrid(target, &implicitValue, &normal);
 						
-						bool exitedSurface = (sign == true && implicitValue > 0.0f) || (sign == false && implicitValue < 0.0f);
-						if (exitedSurface) {
+						evaluateGrid(target, implicitValue, normal);
+						
+						if ((sign == 1 && implicitValue > 0.0f) || (sign == -1 && implicitValue < 0.0f)) {
 							hit = target;
 							normal = implicitNormal;
 							break;
@@ -145,9 +158,16 @@ void raymarchKernel(glm::vec3* d_rays, glm::vec3* d_output, unsigned n, unsigned
 		}
 	}
 	
-	d_output[idx] = hit;
-	d_output[n + idx] = normal;
+	d_output[idx].first = hit;
+ 	d_output[idx].second = normal;
 }
+
+struct IsNotZero {
+	__host__ __device__
+	bool operator()(const PointNormalPair& a) {
+		return !(a.first.x == 0.0f && a.first.y == 0.0f && a.first.z == 0.0f);
+	}
+};
 
 void launchRaymarchKernel(const util::Grid3D& volume, const util::RayVector& rays, unsigned steps, PointNormalData& results) {
 	// configure device
@@ -181,36 +201,34 @@ void launchRaymarchKernel(const util::Grid3D& volume, const util::RayVector& ray
 	check( cudaBindTextureToArray(tex_voxels, d_volumeArray, channelDesc), "cudaBindTextureToArray" );
 	
 	// initialize ray array
-	glm::vec3* d_rays;
-	check( cudaMalloc(&d_rays, sizeof(glm::vec3) * 2 * rays.size()), "cudaMalloc" );
-	check( cudaMemcpy(d_rays, rays.data(), sizeof(glm::vec3) * 2 * rays.size(), cudaMemcpyHostToDevice), "cudaMemcpy" );
+ 	glm::vec3* d_rays;
+	check( cudaMalloc(&d_rays, sizeof(glm::vec3) * rays.size()), "cudaMalloc" );
+	check( cudaMemcpy2D(d_rays, sizeof(glm::vec3), &rays[0].d, 2 * sizeof(glm::vec3), sizeof(glm::vec3), rays.size(), cudaMemcpyHostToDevice), "cudaMemcpy2D" );
 	
-	// initialize output array
-	glm::vec3* d_output;
-	check( cudaMalloc(&d_output, sizeof(glm::vec3) * 2 * rays.size()), "cudaMalloc" );
-	
+	// initialize output arrays
+	PointNormalPair* d_output;
+	check( cudaMalloc(&d_output, sizeof(PointNormalPair) * rays.size()), "cudaMalloc" );
+
 	// launch kernel
 	dim3 block(256, 1, 1);
 	dim3 grid((rays.size() + block.x - 1) / block.x, 1, 1);
 	
-	raymarchKernel<<<grid, block>>>(d_rays, d_output, rays.size(), steps);
+	raymarchKernel<<<grid, block>>>(rays.front().o, d_rays, d_output, rays.size(), steps);
 	check( cudaDeviceSynchronize(), "kernel launch" );
 	
 	// retrieve intersection data
-	glm::vec3* h_output = new glm::vec3[2 * rays.size()];
-	check( cudaMemcpy(h_output, d_output, sizeof(glm::vec3) * 2 * rays.size(), cudaMemcpyDeviceToHost), "cudaMemcpy" );
+	thrust::device_ptr<PointNormalPair> out = thrust::device_pointer_cast(d_output);
+	thrust::device_vector<PointNormalPair> d_results;
+	d_results.resize(rays.size());
 	
-	results.reserve(rays.size());
-	for (unsigned i = 0; i < rays.size(); i++) {
-		const glm::vec3& p = h_output[i];
-		const glm::vec3& n = h_output[i + rays.size()];
-		if (p != Point3f(0.0f)) {
-			results.push_back( std::make_pair(p, n) );
-		}
-	}
+	thrust::device_vector<PointNormalPair>::iterator end;
+	checkThrust( end = thrust::copy_if(out, out + rays.size(), d_results.begin(), IsNotZero()) , "copy_if" );
+	results.resize(end - d_results.begin());
+	checkThrust( thrust::copy(d_results.begin(), end, results.begin()), "copy" );
 	
 	// cleanup
-	delete[] h_output;
+	d_results.resize(0); d_results.shrink_to_fit();
 	check( cudaFree(d_rays), "cudaFree");
 	check( cudaFree(d_output), "cudaFree");
+	check( cudaFreeArray(d_volumeArray), "cudaFreeArray" );
 }
