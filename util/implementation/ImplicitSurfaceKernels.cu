@@ -138,21 +138,25 @@ void raymarchKernel(glm::vec3 org, glm::vec3* d_rays, PointNormalPair* d_output,
 				evaluateGrid(target, implicitValue, implicitNormal);
 				
 				if ((sign == 1 && implicitValue < 0.0f) || (sign == -1 && implicitValue > 0.0f)) { // ray entered surface
-					float tStart = tnear + (i-1) * step;
-					step = (tnear + i * step - tStart) / steps;
-					
-					for (int j = steps-1; j >= 0; j--) {
-						target = org + dir * (tStart + j * step);
-						
-						evaluateGrid(target, implicitValue, normal);
-						
-						if ((sign == 1 && implicitValue > 0.0f) || (sign == -1 && implicitValue < 0.0f)) {
-							hit = target;
-							normal = implicitNormal;
-							break;
-						}
-					}
 					break;
+				}
+			}
+			
+			if (i < steps-1) {
+				float tStart = tnear + (i-1) * step;
+				step = (tnear + i * step - tStart) / steps;
+				
+				for (int j = steps-1; j >= 0; j--) {
+					glm::vec3 target = org + dir * (tStart + j * step);
+					float implicitValue; glm::vec3 implicitNormal;
+					
+					evaluateGrid(target, implicitValue, normal);
+					
+					if ((sign == 1 && implicitValue > 0.0f) || (sign == -1 && implicitValue < 0.0f)) {
+						hit = target;
+						normal = implicitNormal;
+						break;
+					}
 				}
 			}
 		}
