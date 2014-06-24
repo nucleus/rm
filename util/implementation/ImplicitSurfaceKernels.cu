@@ -28,16 +28,21 @@
 
 #include <limits.h>
 #include <float.h>
+#include <stdio.h>
 
 // constant data
 __constant__ float3 c_bboxMin;
 __constant__ float3 c_bboxMax;
+__constant__ float3 c_topLeftDir;
+__constant__ float3 c_topRightDir;
+__constant__ float3 c_bottomLeftDir;
+__constant__ float3 c_bottomRightDir;
 
 // textures
 texture<float4, 3, cudaReadModeElementType> tex_voxels;
 
-inline __device__ glm::vec3 make_vec3(const float3& a) {
-	return glm::vec3(a.x, a.y, a.z);
+inline __device__ const glm::vec3& make_vec3(const float3& a) {
+	return *reinterpret_cast<const glm::vec3*>(&a);
 }
 
 __device__
@@ -86,15 +91,24 @@ void evaluateGrid(const glm::vec3& target, float& value, glm::vec3& normal) {
 	normal = glm::vec3(interp.x, interp.y, interp.z);
 }
 
+inline __device__
+void bilerp(const glm::vec3& tl, const glm::vec3& tr, const glm::vec3& bl, const glm::vec3& br, float x, float y, glm::vec3& result) {
+	glm::vec3 top = (1-x) * tl + x * tr;
+	glm::vec3 bot = (1-x) * bl + x * br;
+	result = glm::normalize((1-y) * top + y * bot);
+}
+
 __global__
-void raymarchKernel(glm::vec3 org, glm::vec3* d_rays, PointNormalPair* d_output, unsigned n, unsigned steps) {
-	unsigned idx = blockIdx.x * blockDim.x + threadIdx.x;
+void raymarchKernel(glm::vec3 org, unsigned width, unsigned height, unsigned steps, PointNormalPair* d_output) {
+	unsigned x = blockIdx.x * blockDim.x + threadIdx.x;
+	unsigned y = blockIdx.y * blockDim.y + threadIdx.y;
 	
-	if (idx > n) {
+	if (x >= width || y >= height) {
 		return;
 	}
 	
-	glm::vec3 dir = d_rays[idx];
+	glm::vec3 dir;
+	bilerp(make_vec3(c_topLeftDir), make_vec3(c_topRightDir), make_vec3(c_bottomLeftDir), make_vec3(c_bottomRightDir), (float)x/(float)width, (float)y/(float)height, dir);
 	
 	glm::vec3 hit, normal;
 	float tnear, tfar;
@@ -162,8 +176,8 @@ void raymarchKernel(glm::vec3 org, glm::vec3* d_rays, PointNormalPair* d_output,
 		}
 	}
 	
-	d_output[idx].first = hit;
- 	d_output[idx].second = normal;
+	d_output[y*width+x].first = hit;
+ 	d_output[y*width+x].second = normal;
 }
 
 struct IsNotZero {
@@ -173,13 +187,19 @@ struct IsNotZero {
 	}
 };
 
-void launchRaymarchKernel(const util::Grid3D& volume, const util::RayVector& rays, unsigned steps, PointNormalData& results) {
+void launchRaymarchKernel(const util::Grid3D& volume, const glm::vec3& origin, const PointVector& rayCornerDirections, unsigned width, unsigned height, unsigned steps, PointNormalData& results) {
 	// configure device
 	check( cudaDeviceSetCacheConfig( cudaFuncCachePreferL1 ), "cudaDeviceSetCacheConfig" );
 	
 	// copy bbox data to const
 	check( cudaMemcpyToSymbol(c_bboxMin, glm::value_ptr(volume.bounds().min()), sizeof(float3)), "cudaMemcpyToSymbol" );
 	check( cudaMemcpyToSymbol(c_bboxMax, glm::value_ptr(volume.bounds().max()), sizeof(float3)), "cudaMemcpyToSymbol" );
+	
+	// copy ray corner directions to const
+	check( cudaMemcpyToSymbol(c_topLeftDir, glm::value_ptr(rayCornerDirections[0]), sizeof(float3)), "cudaMemcpyToSymbol" );
+	check( cudaMemcpyToSymbol(c_topRightDir, glm::value_ptr(rayCornerDirections[1]), sizeof(float3)), "cudaMemcpyToSymbol" );
+	check( cudaMemcpyToSymbol(c_bottomLeftDir, glm::value_ptr(rayCornerDirections[2]), sizeof(float3)), "cudaMemcpyToSymbol" );
+	check( cudaMemcpyToSymbol(c_bottomRightDir, glm::value_ptr(rayCornerDirections[3]), sizeof(float3)), "cudaMemcpyToSymbol" );
 	
 	// initialize grid textures
 	cudaArray* d_volumeArray;
@@ -203,36 +223,30 @@ void launchRaymarchKernel(const util::Grid3D& volume, const util::RayVector& ray
 	tex_voxels.addressMode[2] = cudaAddressModeClamp;
 
 	check( cudaBindTextureToArray(tex_voxels, d_volumeArray, channelDesc), "cudaBindTextureToArray" );
-	
-	// initialize ray array
- 	glm::vec3* d_rays;
-	check( cudaMalloc(&d_rays, sizeof(glm::vec3) * rays.size()), "cudaMalloc" );
-	check( cudaMemcpy2D(d_rays, sizeof(glm::vec3), &rays[0].d, 2 * sizeof(glm::vec3), sizeof(glm::vec3), rays.size(), cudaMemcpyHostToDevice), "cudaMemcpy2D" );
-	
+		
 	// initialize output arrays
 	PointNormalPair* d_output;
-	check( cudaMalloc(&d_output, sizeof(PointNormalPair) * rays.size()), "cudaMalloc" );
+	check( cudaMalloc(&d_output, sizeof(PointNormalPair) * width * height), "cudaMalloc" );
 
 	// launch kernel
-	dim3 block(256, 1, 1);
-	dim3 grid((rays.size() + block.x - 1) / block.x, 1, 1);
+	dim3 block(16, 16, 1);
+	dim3 grid((width + block.x - 1) / block.x, (height + block.y - 1) / block.y, 1);
 	
-	raymarchKernel<<<grid, block>>>(rays.front().o, d_rays, d_output, rays.size(), steps);
+	raymarchKernel<<<grid, block>>>(origin, width, height, steps, d_output);
 	check( cudaDeviceSynchronize(), "kernel launch" );
 	
 	// retrieve intersection data
 	thrust::device_ptr<PointNormalPair> out = thrust::device_pointer_cast(d_output);
 	thrust::device_vector<PointNormalPair> d_results;
-	d_results.resize(rays.size());
+	d_results.resize(width * height);
 	
 	thrust::device_vector<PointNormalPair>::iterator end;
-	checkThrust( end = thrust::copy_if(out, out + rays.size(), d_results.begin(), IsNotZero()) , "copy_if" );
+	checkThrust( end = thrust::copy_if(out, out + (width * height), d_results.begin(), IsNotZero()) , "copy_if" );
 	results.resize(end - d_results.begin());
 	checkThrust( thrust::copy(d_results.begin(), end, results.begin()), "copy" );
 	
 	// cleanup
 	d_results.resize(0); d_results.shrink_to_fit();
-	check( cudaFree(d_rays), "cudaFree");
 	check( cudaFree(d_output), "cudaFree");
 	check( cudaFreeArray(d_volumeArray), "cudaFreeArray" );
 }

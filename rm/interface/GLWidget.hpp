@@ -6,6 +6,7 @@
 #define EX2_GLWIDGET_H
 
 #include <QGLWidget>
+#include <cuda_runtime.h>
 
 #include <util/interface/Util.hpp>
 #include <util/interface/ImplicitSurface.hpp>
@@ -30,8 +31,12 @@ protected:
 
 protected:	
 	void computeWLS();
-	void generateRays(util::RayVector& _rays);
-	void traceRays(const util::RayVector& _rays);
+	
+	void generateRaysCPU(util::RayVector& _rays);
+	void traceRaysCPU(const util::RayVector& _rays);
+	
+	void generateRaysGPU(glm::vec3& _origin, PointVector& _rays, unsigned& _width, unsigned& _height);
+	void traceRaysGPU(const glm::vec3& _origin, const PointVector& _rays, unsigned _width, unsigned _height);
 	
 protected:
 	void _shade(const Point3f& p, const Point3f& n, Point3f& color) const;
@@ -89,7 +94,7 @@ public slots:
 	
 	void setMaxRenderPoints(int points) { m_drawRMPoints = points; updateGL(); }
 	
-	void enableCPUDevice() { m_enableGPU = false; m_recomputeWLS = true; }
+	void enableCPUDevice() { m_enableGPU = false; m_recomputeWLS = true; cudaFree(0); }
 	void enableGPUDevice() { m_enableGPU = true; m_recomputeWLS = true; }
 	
 	void wls();	

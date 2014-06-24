@@ -269,29 +269,47 @@ void GLWidget::raymarch() {
 		m_recomputeWLS = false;
 	}
 	
-	util::RayVector rays;
-	
-	// generate rays
-	{
-		float time = 0.0f;
-		GET_TIME( generateRays(rays) )
-		report("GLWidget::raymarch(): Ray generation took " << time / 1000.0f << " ms");
-	}
-	
-	// trace rays
-	{
-		float time = 0.0f;
-		GET_TIME( traceRays(rays) )
-		report("GLWidget::raymarch(): Ray tracing took " << time / 1000.0f << " ms");	
+	if (m_enableGPU) {
+		
+		unsigned width, height;
+		glm::vec3 origin;
+		PointVector directions;
+		
+		// generate ray directions, origin, and width and height of the viewport
+		{
+			float time = 0.0f;
+			GET_TIME( generateRaysGPU(origin, directions, width, height) )
+			report("GLWidget::raymarch(): Ray generation took " << time / 1000.0f << " ms");
+		}
+		
+		// trace rays
+		{
+			float time = 0.0f;
+			GET_TIME( traceRaysGPU(origin, directions, width, height) )
+			report("GLWidget::raymarch(): Ray tracing took " << time / 1000.0f << " ms");
+		}
+		
+		
+	} else {
+		util::RayVector rays;
+		
+		// generate rays
+		{
+			float time = 0.0f;
+			GET_TIME( generateRaysCPU(rays) )
+			report("GLWidget::raymarch(): Ray generation took " << time / 1000.0f << " ms");
+		}
+		
+		// trace rays
+		{
+			float time = 0.0f;
+			GET_TIME( traceRaysCPU(rays) )
+			report("GLWidget::raymarch(): Ray tracing took " << time / 1000.0f << " ms");
+		}
 	}
 	
 	report("GLWidget::raymarch(): Completed, found " << m_rayMarchPoints.size() << " intersection points");
 	updateGL();
-}
-
-void GLWidget::traceRays(const util::RayVector& _rays) {
-	report("GLWidget::traceRays()");
-	m_surface.intersect(_rays, m_rayMarchPoints, m_enableGPU);
 }
 
 void GLWidget::computeWLS() {
@@ -337,14 +355,66 @@ void GLWidget::computeWLS() {
 	}	
 }
 
+void GLWidget::traceRaysGPU(const glm::vec3& _origin, const PointVector& _directions, unsigned _width, unsigned _height) {
+	report("GLWidget::traceRaysGPU()");
+	m_surface.intersectGPU(_origin, _directions, _width, _height, m_rayMarchPoints);
+}
+
+void GLWidget::generateRaysGPU(glm::vec3& _origin, PointVector& _directions, unsigned& _width, unsigned& _height) {
+	report("GLWidget::generateRaysGPU()");
+
+	// retrieve rendering matrices
+	int viewport[4];
+	double projection[16], modelview[16];
+	glGetDoublev(GL_MODELVIEW_MATRIX, modelview);
+	glGetDoublev(GL_PROJECTION_MATRIX, projection);
+	glGetIntegerv(GL_VIEWPORT, viewport);
+	int w = viewport[2], h = viewport[3];
+
+	_directions.resize(4);
+
+	// retrieve camera location
+	Point3f origin;
+	origin.x = -(modelview[0] * modelview[12] + modelview[1] * modelview[13] + modelview[2] * modelview[14]);
+	origin.y = -(modelview[4] * modelview[12] + modelview[5] * modelview[13] + modelview[6] * modelview[14]);
+	origin.z = -(modelview[8] * modelview[12] + modelview[9] * modelview[13] + modelview[10] * modelview[14]);
+
+	// retrieve points in four corners of the viewport
+	glm::dvec3 topLeftPoint, topRightPoint, bottomLeftPoint, bottomRightPoint;
+	gluUnProject(0, h, 1.0, modelview, projection, viewport,
+				&topLeftPoint[0],&topLeftPoint[1],&topLeftPoint[2]);
+	gluUnProject(w, h, 1.0, modelview, projection, viewport,
+				&topRightPoint[0],&topRightPoint[1],&topRightPoint[2]);
+	gluUnProject(0, 0, 1.0, modelview, projection, viewport,
+				&bottomLeftPoint[0],&bottomLeftPoint[1],&bottomLeftPoint[2]);
+	gluUnProject(w, 0, 1.0, modelview, projection, viewport,
+				&bottomRightPoint[0],&bottomRightPoint[1],&bottomRightPoint[2]);
+	
+	// return directions
+	_directions[0] = glm::normalize(glm::vec3(topLeftPoint) - origin);
+	_directions[1] = glm::normalize(glm::vec3(topRightPoint) - origin);
+	_directions[2] = glm::normalize(glm::vec3(bottomLeftPoint) - origin);
+	_directions[3] = glm::normalize(glm::vec3(bottomRightPoint) - origin);
+	
+	// return origin, width, height
+	_origin = origin;
+	_width = w;
+	_height = h;
+}
+
+void GLWidget::traceRaysCPU(const util::RayVector& _rays) {
+	report("GLWidget::traceRaysCPU()");
+	m_surface.intersectCPU(_rays, m_rayMarchPoints);
+}
+
 static glm::vec3 bivariateBilerp(const glm::vec3& tl, const glm::vec3& tr, const glm::vec3& bl, const glm::vec3& br, float x, float y) {
 	glm::vec3 top = (1-x) * tl + x * tr;
 	glm::vec3 bottom = (1-x) * bl + x * br;
 	return ((1-y) * top + y * bottom);
 }
 
-void GLWidget::generateRays(util::RayVector& _rays) {
-	report("GLWidget::generateRays()");
+void GLWidget::generateRaysCPU(util::RayVector& _rays) {
+	report("GLWidget::generateRaysCPU()");
 
 	// retrieve rendering matrices
 	int viewport[4];
@@ -361,8 +431,6 @@ void GLWidget::generateRays(util::RayVector& _rays) {
 	origin.x = -(modelview[0] * modelview[12] + modelview[1] * modelview[13] + modelview[2] * modelview[14]);
 	origin.y = -(modelview[4] * modelview[12] + modelview[5] * modelview[13] + modelview[6] * modelview[14]);
 	origin.z = -(modelview[8] * modelview[12] + modelview[9] * modelview[13] + modelview[10] * modelview[14]);
-	
-	report("GLWidget::generateRays(): Viewport w = " << w << ", h = " << h << ", ray origin @ " << origin);
 
 	// retrieve points in four corners of the viewport
 	glm::dvec3 topLeftPoint, topRightPoint, bottomLeftPoint, bottomRightPoint;
@@ -374,11 +442,6 @@ void GLWidget::generateRays(util::RayVector& _rays) {
 				&bottomLeftPoint[0],&bottomLeftPoint[1],&bottomLeftPoint[2]);
 	gluUnProject(w, 0, 1.0, modelview, projection, viewport,
 				&bottomRightPoint[0],&bottomRightPoint[1],&bottomRightPoint[2]);
-	
-// 	report("GLWidget::generateRays(): Top left point = " << Point3f(topLeftPoint));
-// 	report("GLWidget::generateRays(): Top right point = " << Point3f(topRightPoint));
-// 	report("GLWidget::generateRays(): Bottom left point = " << Point3f(bottomLeftPoint));
-// 	report("GLWidget::generateRays(): Bottom right point = " << Point3f(bottomRightPoint));
 	
 	// compute directions
 	glm::vec3 rayDirTopLeft = glm::vec3(topLeftPoint) - origin;

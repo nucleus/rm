@@ -139,20 +139,12 @@ void util::ImplicitSurface::_gatherPoints(Node* node, const util::BoundingBox& b
 
 /////////////////////////////////////////////////////////////////////////////////////
 
-void util::ImplicitSurface::intersect(const util::RayVector& rays, PointNormalData& intersections, bool enableGPU) const {
-	if (enableGPU) {
-		_intersectGPU(rays, intersections);
-	} else {
-		_intersectCPU(rays, intersections);
-	}
-}
-
-void util::ImplicitSurface::_intersectGPU(const util::RayVector& rays, PointNormalData& intersections) const {
+void util::ImplicitSurface::intersectGPU(const glm::vec3& origin, const PointVector& rayDirections, unsigned width, unsigned height, PointNormalData& intersections) const {
 	intersections.clear();
-	launchRaymarchKernel(m_grid, rays, m_rmSteps, intersections);
+	launchRaymarchKernel(m_grid, origin, rayDirections, width, height, m_rmSteps, intersections);
 }
 
-void util::ImplicitSurface::_intersectCPU(const util::RayVector& rays, PointNormalData& intersections) const {
+void util::ImplicitSurface::intersectCPU(const util::RayVector& rays, PointNormalData& intersections) const {
 	intersections.clear();
 	for (unsigned i = 0; i < rays.size(); i++) {
 		Point3f hit, normal;
